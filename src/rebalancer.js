@@ -247,17 +247,66 @@ export function rebalancePortfolio(amount, assetClasses) {
           }
         }
       } else {
-        // No sellable assets, withdraw from all assets
-        const totalTargetPercent = assets.reduce((sum, a) => sum + a.targetPercent, 0);
+        // No sellable assets, withdraw from overweighted assets only
+        // First, identify which assets are overweighted
+        const currentPercentages = assets.map(asset => ({
+          asset,
+          currentPercent: (asset.workingValue / totalBefore) * 100
+        }));
 
-        for (const asset of assets) {
-          if (asset.workingValue > 0.01) {
-            const targetFinalValue = (asset.targetPercent / totalTargetPercent) * totalAfter;
-            const adjustment = roundToCents(targetFinalValue - asset.workingValue);
+        const overweightedAssets = currentPercentages
+          .filter(ap => ap.currentPercent > ap.asset.targetPercent && ap.asset.workingValue > 0.01)
+          .map(ap => ap.asset);
 
-            asset.workingValue = roundToCents(asset.workingValue + adjustment);
-            asset.transaction = roundToCents(asset.transaction + adjustment);
-            remainingAmount = roundToCents(remainingAmount - adjustment);
+        if (overweightedAssets.length > 0) {
+          // Check if withdrawal can be satisfied by overweighted assets alone
+          const totalOverweightedValue = overweightedAssets.reduce((sum, a) => sum + a.workingValue, 0);
+
+          if (Math.abs(amount) <= totalOverweightedValue) {
+            // Withdraw from overweighted assets to move them towards their target ratios
+            // Calculate the total target percentage for overweighted assets
+            const totalOverweightedTargetPercent = overweightedAssets.reduce((sum, a) => sum + a.targetPercent, 0);
+
+            // Calculate the new total value after withdrawal for overweighted assets
+            const overweightedAfterTotal = totalOverweightedValue + amount; // amount is negative
+
+            for (const asset of overweightedAssets) {
+              // Calculate target final value proportional to their target percentages
+              const targetFinalValue = (asset.targetPercent / totalOverweightedTargetPercent) * overweightedAfterTotal;
+              const adjustment = roundToCents(targetFinalValue - asset.workingValue);
+
+              asset.workingValue = roundToCents(asset.workingValue + adjustment);
+              asset.transaction = roundToCents(asset.transaction + adjustment);
+              remainingAmount = roundToCents(remainingAmount - adjustment);
+            }
+          } else {
+            // Withdrawal exceeds overweighted assets, withdraw from all assets proportionally
+            const totalTargetPercent = assets.reduce((sum, a) => sum + a.targetPercent, 0);
+
+            for (const asset of assets) {
+              if (asset.workingValue > 0.01) {
+                const targetFinalValue = (asset.targetPercent / totalTargetPercent) * totalAfter;
+                const adjustment = roundToCents(targetFinalValue - asset.workingValue);
+
+                asset.workingValue = roundToCents(asset.workingValue + adjustment);
+                asset.transaction = roundToCents(asset.transaction + adjustment);
+                remainingAmount = roundToCents(remainingAmount - adjustment);
+              }
+            }
+          }
+        } else {
+          // No overweighted assets, withdraw from all assets proportionally to target
+          const totalTargetPercent = assets.reduce((sum, a) => sum + a.targetPercent, 0);
+
+          for (const asset of assets) {
+            if (asset.workingValue > 0.01) {
+              const targetFinalValue = (asset.targetPercent / totalTargetPercent) * totalAfter;
+              const adjustment = roundToCents(targetFinalValue - asset.workingValue);
+
+              asset.workingValue = roundToCents(asset.workingValue + adjustment);
+              asset.transaction = roundToCents(asset.transaction + adjustment);
+              remainingAmount = roundToCents(remainingAmount - adjustment);
+            }
           }
         }
       }

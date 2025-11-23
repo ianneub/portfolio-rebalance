@@ -192,6 +192,36 @@ describe('Portfolio Rebalancer', () => {
       expect(totalTransaction).toBe(10000);
     });
 
+    test('Removing $25,000 should remove $7,500 from Cash and $17,500 from Bonds even when sell is all false', () => {
+      const portfolio = [
+        { name: 'Stocks', targetPercent: 80, currentValue: 100000, sell: false },
+        { name: 'Cash', targetPercent: 10, currentValue: 40000, sell: false },
+        { name: 'Bonds', targetPercent: 10, currentValue: 50000, sell: false }
+      ];
+
+      const result = rebalancePortfolio(-25000, portfolio);
+
+      expect(result.summary.totalBefore).toBe(190000);
+      expect(result.summary.totalAfter).toBe(165000);
+      expect(result.summary.contribution).toBe(-25000);
+
+      const stocks = result.transactions.find(t => t.name === 'Stocks');
+      const cash = result.transactions.find(t => t.name === 'Cash');
+      const bonds = result.transactions.find(t => t.name === 'Bonds');
+
+      expect(stocks.amount).toBe(0);
+      expect(cash.amount).toBe(-7500);
+      expect(bonds.amount).toBe(-17500);
+
+      expect(stocks.finalValue).toBe(100000);
+      expect(cash.finalValue).toBe(32500);
+      expect(bonds.finalValue).toBe(32500);
+
+      // Verify sum of transactions equals withdrawal
+      const totalTransaction = stocks.amount + cash.amount + bonds.amount;
+      expect(totalTransaction).toBe(-25000);
+    });
+
     test('Removing $25,000 should remove $7,500 from Cash and $17,500 from Bonds', () => {
       const portfolio = [
         { name: 'Stocks', targetPercent: 80, currentValue: 100000, sell: false },
