@@ -1,5 +1,7 @@
 # Portfolio Rebalance Calculator
 
+[![Test](https://github.com/ianneub/portfolio-rebalance/actions/workflows/test.yml/badge.svg)](https://github.com/ianneub/portfolio-rebalance/actions/workflows/test.yml)
+
 A JavaScript calculator for optimal lazy portfolio rebalancing, designed for use in browsers supporting ES6+.
 
 ## Features
