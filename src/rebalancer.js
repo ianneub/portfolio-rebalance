@@ -115,13 +115,18 @@ export function rebalancePortfolio(amount, assetClasses) {
 
   // NEW: Handle internal rebalancing when sell=true is set
   // Sell from over-weighted assets (where sell=true) to buy under-weighted assets
-  
+
   // First, check if internal rebalancing is needed
   const sellableAssets = assets.filter(a => a.sell === true);
+  const allAssetsSellable = sellableAssets.length === assets.length;
   const hasInternalRebalancing = sellableAssets.length > 0;
-  
-  // Do internal rebalancing for any amount (including withdrawals) when assets are sellable
-  if (hasInternalRebalancing && totalAfter > 0.01) {
+
+  // Do internal rebalancing only when:
+  // 1. Not withdrawing (amount >= 0), OR
+  // 2. Withdrawing but all assets are sellable
+  const shouldDoInternalRebalancing = hasInternalRebalancing && totalAfter > 0.01 && (amount >= 0 || allAssetsSellable);
+
+  if (shouldDoInternalRebalancing) {
     // Calculate target values and deviations for all assets
     assets.forEach(asset => {
       const currentPercent = (asset.workingValue / totalAfter) * 100;
@@ -194,77 +199,66 @@ export function rebalancePortfolio(amount, assetClasses) {
   
   // After internal rebalancing, handle any external contribution or withdrawal
   if (isWithdrawal) {
-    const sellableAssets = assets.filter(a => a.workingValue > 0);
-    
     // Special case: withdrawing entire portfolio
     if (Math.abs(totalAfter) < 0.01) {
-      sellableAssets.forEach(asset => {
+      assets.filter(a => a.workingValue > 0).forEach(asset => {
         const adjustment = -asset.workingValue;
         asset.workingValue = 0;
         asset.transaction = adjustment;
       });
     } else {
-      while (Math.abs(remainingAmount) > 0.01) {
-        // Calculate current deviations for all sellable assets
-        const assetDeviations = sellableAssets.map(asset => ({
-          asset,
-          deviation: calculateDeviation(
-            (asset.workingValue / totalAfter) * 100,
-            asset.targetPercent
-          ),
-          value: asset.workingValue
-        })).filter(ad => ad.value > 0);
-        
-        if (assetDeviations.length === 0) break;
-        
-        // Sort by deviation (highest first)
-        assetDeviations.sort((a, b) => b.deviation - a.deviation);
-        
-        const highest = assetDeviations[0];
-        
-        // If only one sellable asset or they're roughly equal, distribute equally
-        if (assetDeviations.length === 1 || 
-            (assetDeviations.length > 1 && Math.abs(highest.deviation - assetDeviations[1].deviation) < 0.0001)) {
-          // Distribute remaining amount equally among assets with similar highest deviation
-          const equalAssets = assetDeviations.filter(ad => 
-            Math.abs(ad.deviation - highest.deviation) < 0.0001
-          );
-          
-          const amountPerAsset = remainingAmount / equalAssets.length;
-          
-          for (const ad of equalAssets) {
-            const maxSell = Math.min(Math.abs(amountPerAsset), ad.asset.workingValue);
-            const adjustment = -roundToCents(maxSell);
-            
-            ad.asset.workingValue = roundToCents(ad.asset.workingValue + adjustment);
-            ad.asset.transaction = roundToCents(ad.asset.transaction + adjustment);
-            remainingAmount = roundToCents(remainingAmount - adjustment);
-            
-            if (Math.abs(remainingAmount) < 0.01) break;
+      // For withdrawals, prefer to withdraw from assets with sell=true
+      // but can withdraw from sell=false assets if needed
+      const sellableAssets = assets.filter(a => a.sell === true);
+
+      if (sellableAssets.length > 0) {
+        // We have some sellable assets, try to withdraw from them first
+        const sellableValue = sellableAssets.reduce((sum, a) => sum + a.workingValue, 0);
+
+        if (Math.abs(amount) <= sellableValue) {
+          // We can satisfy the withdrawal from sellable assets only
+          const totalSellableTargetPercent = sellableAssets.reduce((sum, a) => sum + a.targetPercent, 0);
+
+          for (const asset of sellableAssets) {
+            if (asset.workingValue > 0.01) {
+              // Calculate how much to withdraw to maintain target ratios among sellable assets
+              const sellableAfterTotal = sellableValue + amount; // amount is negative
+              const targetFinalValue = (asset.targetPercent / totalSellableTargetPercent) * sellableAfterTotal;
+              const adjustment = roundToCents(targetFinalValue - asset.workingValue);
+
+              asset.workingValue = roundToCents(asset.workingValue + adjustment);
+              asset.transaction = roundToCents(asset.transaction + adjustment);
+              remainingAmount = roundToCents(remainingAmount - adjustment);
+            }
           }
         } else {
-          // Sell from highest to bring it down to second highest
-          const secondHighest = assetDeviations[1];
-          
-          // Calculate amount to sell to equalize with second highest
-          // We want: (value - x) / totalAfter / targetPercent - 1 = secondHighestDeviation
-          // Solving: x = value - totalAfter * targetPercent * (1 + secondHighestDeviation) / 100
-          const targetValue = totalAfter * (highest.asset.targetPercent / 100) * (1 + secondHighest.deviation);
-          const amountToEqualize = highest.asset.workingValue - targetValue;
-          
-          // Sell the minimum of: amount to equalize, remaining amount, or available value
-          const amountToSell = Math.min(
-            Math.abs(remainingAmount),
-            Math.max(0, amountToEqualize),
-            highest.asset.workingValue
-          );
-          
-          if (amountToSell < 0.01) break;
-          
-          const adjustment = -roundToCents(amountToSell);
-          highest.asset.workingValue = roundToCents(highest.asset.workingValue + adjustment);
-          highest.asset.transaction = roundToCents(highest.asset.transaction + adjustment);
-          remainingAmount = roundToCents(remainingAmount - adjustment);
+          // Need to withdraw from all assets
+          const totalTargetPercent = assets.reduce((sum, a) => sum + a.targetPercent, 0);
+
+          for (const asset of assets) {
+            if (asset.workingValue > 0.01) {
+              const targetFinalValue = (asset.targetPercent / totalTargetPercent) * totalAfter;
+              const adjustment = roundToCents(targetFinalValue - asset.workingValue);
+
+              asset.workingValue = roundToCents(asset.workingValue + adjustment);
+              asset.transaction = roundToCents(asset.transaction + adjustment);
+              remainingAmount = roundToCents(remainingAmount - adjustment);
+            }
+          }
+        }
+      } else {
+        // No sellable assets, withdraw from all assets
+        const totalTargetPercent = assets.reduce((sum, a) => sum + a.targetPercent, 0);
+
+        for (const asset of assets) {
+          if (asset.workingValue > 0.01) {
+            const targetFinalValue = (asset.targetPercent / totalTargetPercent) * totalAfter;
+            const adjustment = roundToCents(targetFinalValue - asset.workingValue);
+
+            asset.workingValue = roundToCents(asset.workingValue + adjustment);
+            asset.transaction = roundToCents(asset.transaction + adjustment);
+            remainingAmount = roundToCents(remainingAmount - adjustment);
+          }
         }
       }
     }
