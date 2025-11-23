@@ -1,6 +1,7 @@
 # Portfolio Rebalance Calculator
 
 [![Test](https://github.com/ianneub/portfolio-rebalance/actions/workflows/test.yml/badge.svg)](https://github.com/ianneub/portfolio-rebalance/actions/workflows/test.yml)
+[![codecov](https://codecov.io/gh/ianneub/portfolio-rebalance/branch/master/graph/badge.svg)](https://codecov.io/gh/ianneub/portfolio-rebalance)
 
 A JavaScript calculator for optimal lazy portfolio rebalancing, designed for use in browsers supporting ES6+.
 
@@ -316,7 +317,6 @@ npm run test:coverage
 
 ### Test Cases Included
 
-- ✅ All user-provided test scenarios
 - ✅ Edge cases (zero contribution, balanced portfolio, etc.)
 - ✅ Constraint validation (respecting sell flags)
 - ✅ Rounding and precision tests
