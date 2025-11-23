@@ -207,80 +207,54 @@ export function rebalancePortfolio(amount, assetClasses) {
         asset.transaction = adjustment;
       });
     } else {
-      // For withdrawals, prefer to withdraw from assets with sell=true
-      // but can withdraw from sell=false assets if needed
-      const sellableAssets = assets.filter(a => a.sell === true);
+      // For withdrawals, prioritize achieving perfect balance across all assets
+      // Strategy: Always try to achieve perfect balance after withdrawal first
 
-      if (sellableAssets.length > 0) {
-        // We have some sellable assets, try to withdraw from them first
-        const sellableValue = sellableAssets.reduce((sum, a) => sum + a.workingValue, 0);
+      // Calculate what perfect balance would look like after withdrawal
+      const canAchievePerfectBalance = assets.every(asset => {
+        const targetFinalValue = (asset.targetPercent / 100) * totalAfter;
+        // Can achieve if target is less than or equal to current (we're withdrawing)
+        return targetFinalValue <= asset.workingValue + 0.01; // small tolerance
+      });
 
-        if (Math.abs(amount) <= sellableValue) {
-          // We can satisfy the withdrawal from sellable assets only
-          const totalSellableTargetPercent = sellableAssets.reduce((sum, a) => sum + a.targetPercent, 0);
+      if (canAchievePerfectBalance) {
+        // Withdraw in a way that achieves perfect target allocation (regardless of sell attribute)
+        const totalTargetPercent = assets.reduce((sum, a) => sum + a.targetPercent, 0);
 
-          for (const asset of sellableAssets) {
-            if (asset.workingValue > 0.01) {
-              // Calculate how much to withdraw to maintain target ratios among sellable assets
-              const sellableAfterTotal = sellableValue + amount; // amount is negative
-              const targetFinalValue = (asset.targetPercent / totalSellableTargetPercent) * sellableAfterTotal;
-              const adjustment = roundToCents(targetFinalValue - asset.workingValue);
+        for (const asset of assets) {
+          const targetFinalValue = (asset.targetPercent / totalTargetPercent) * totalAfter;
+          const adjustment = roundToCents(targetFinalValue - asset.workingValue);
 
-              asset.workingValue = roundToCents(asset.workingValue + adjustment);
-              asset.transaction = roundToCents(asset.transaction + adjustment);
-              remainingAmount = roundToCents(remainingAmount - adjustment);
-            }
-          }
-        } else {
-          // Need to withdraw from all assets
-          const totalTargetPercent = assets.reduce((sum, a) => sum + a.targetPercent, 0);
-
-          for (const asset of assets) {
-            if (asset.workingValue > 0.01) {
-              const targetFinalValue = (asset.targetPercent / totalTargetPercent) * totalAfter;
-              const adjustment = roundToCents(targetFinalValue - asset.workingValue);
-
-              asset.workingValue = roundToCents(asset.workingValue + adjustment);
-              asset.transaction = roundToCents(asset.transaction + adjustment);
-              remainingAmount = roundToCents(remainingAmount - adjustment);
-            }
-          }
+          asset.workingValue = roundToCents(asset.workingValue + adjustment);
+          asset.transaction = roundToCents(asset.transaction + adjustment);
+          remainingAmount = roundToCents(remainingAmount - adjustment);
         }
       } else {
-        // No sellable assets, withdraw from overweighted assets only
-        // First, identify which assets are overweighted
-        const currentPercentages = assets.map(asset => ({
-          asset,
-          currentPercent: (asset.workingValue / totalBefore) * 100
-        }));
+        // Cannot achieve perfect balance - use sellable asset preference logic
+        const sellableAssets = assets.filter(a => a.sell === true);
 
-        const overweightedAssets = currentPercentages
-          .filter(ap => ap.currentPercent > ap.asset.targetPercent && ap.asset.workingValue > 0.01)
-          .map(ap => ap.asset);
+        if (sellableAssets.length > 0) {
+          // We have some sellable assets, try to withdraw from them first
+          const sellableValue = sellableAssets.reduce((sum, a) => sum + a.workingValue, 0);
 
-        if (overweightedAssets.length > 0) {
-          // Check if withdrawal can be satisfied by overweighted assets alone
-          const totalOverweightedValue = overweightedAssets.reduce((sum, a) => sum + a.workingValue, 0);
+          if (Math.abs(amount) <= sellableValue) {
+            // We can satisfy the withdrawal from sellable assets only
+            const totalSellableTargetPercent = sellableAssets.reduce((sum, a) => sum + a.targetPercent, 0);
 
-          if (Math.abs(amount) <= totalOverweightedValue) {
-            // Withdraw from overweighted assets to move them towards their target ratios
-            // Calculate the total target percentage for overweighted assets
-            const totalOverweightedTargetPercent = overweightedAssets.reduce((sum, a) => sum + a.targetPercent, 0);
+            for (const asset of sellableAssets) {
+              if (asset.workingValue > 0.01) {
+                // Calculate how much to withdraw to maintain target ratios among sellable assets
+                const sellableAfterTotal = sellableValue + amount; // amount is negative
+                const targetFinalValue = (asset.targetPercent / totalSellableTargetPercent) * sellableAfterTotal;
+                const adjustment = roundToCents(targetFinalValue - asset.workingValue);
 
-            // Calculate the new total value after withdrawal for overweighted assets
-            const overweightedAfterTotal = totalOverweightedValue + amount; // amount is negative
-
-            for (const asset of overweightedAssets) {
-              // Calculate target final value proportional to their target percentages
-              const targetFinalValue = (asset.targetPercent / totalOverweightedTargetPercent) * overweightedAfterTotal;
-              const adjustment = roundToCents(targetFinalValue - asset.workingValue);
-
-              asset.workingValue = roundToCents(asset.workingValue + adjustment);
-              asset.transaction = roundToCents(asset.transaction + adjustment);
-              remainingAmount = roundToCents(remainingAmount - adjustment);
+                asset.workingValue = roundToCents(asset.workingValue + adjustment);
+                asset.transaction = roundToCents(asset.transaction + adjustment);
+                remainingAmount = roundToCents(remainingAmount - adjustment);
+              }
             }
           } else {
-            // Withdrawal exceeds overweighted assets, withdraw from all assets proportionally
+            // Need to withdraw from all assets
             const totalTargetPercent = assets.reduce((sum, a) => sum + a.targetPercent, 0);
 
             for (const asset of assets) {
@@ -295,17 +269,48 @@ export function rebalancePortfolio(amount, assetClasses) {
             }
           }
         } else {
-          // No overweighted assets, withdraw from all assets proportionally to target
-          const totalTargetPercent = assets.reduce((sum, a) => sum + a.targetPercent, 0);
+          // No sellable assets - withdraw from overweighted assets only
+          // First, identify which assets are overweighted
+          const currentPercentages = assets.map(asset => ({
+            asset,
+            currentPercent: (asset.workingValue / totalBefore) * 100
+          }));
 
-          for (const asset of assets) {
-            if (asset.workingValue > 0.01) {
-              const targetFinalValue = (asset.targetPercent / totalTargetPercent) * totalAfter;
+          const overweightedAssets = currentPercentages
+            .filter(ap => ap.currentPercent > ap.asset.targetPercent && ap.asset.workingValue > 0.01)
+            .map(ap => ap.asset);
+
+          if (overweightedAssets.length > 0) {
+            // Withdraw from overweighted assets to move them towards their target ratios
+            // Calculate the total target percentage for overweighted assets
+            const totalOverweightedTargetPercent = overweightedAssets.reduce((sum, a) => sum + a.targetPercent, 0);
+            const totalOverweightedValue = overweightedAssets.reduce((sum, a) => sum + a.workingValue, 0);
+
+            // Calculate the new total value after withdrawal for overweighted assets
+            const overweightedAfterTotal = totalOverweightedValue + amount; // amount is negative
+
+            for (const asset of overweightedAssets) {
+              // Calculate target final value proportional to their target percentages
+              const targetFinalValue = (asset.targetPercent / totalOverweightedTargetPercent) * overweightedAfterTotal;
               const adjustment = roundToCents(targetFinalValue - asset.workingValue);
 
               asset.workingValue = roundToCents(asset.workingValue + adjustment);
               asset.transaction = roundToCents(asset.transaction + adjustment);
               remainingAmount = roundToCents(remainingAmount - adjustment);
+            }
+          } else {
+            // No overweighted assets, withdraw from all assets proportionally to target
+            const totalTargetPercent = assets.reduce((sum, a) => sum + a.targetPercent, 0);
+
+            for (const asset of assets) {
+              if (asset.workingValue > 0.01) {
+                const targetFinalValue = (asset.targetPercent / totalTargetPercent) * totalAfter;
+                const adjustment = roundToCents(targetFinalValue - asset.workingValue);
+
+                asset.workingValue = roundToCents(asset.workingValue + adjustment);
+                asset.transaction = roundToCents(asset.transaction + adjustment);
+                remainingAmount = roundToCents(remainingAmount - adjustment);
+              }
             }
           }
         }

@@ -218,6 +218,31 @@ describe('Portfolio Rebalancer', () => {
       expect(totalTransaction).toBe(-1000000);
     });
 
+    test('Removing $1,000 from nearly-balanced portfolio should achieve perfect balance even with mixed sell attributes', () => {
+      const portfolio = [
+        { name: 'Stocks', targetPercent: 90, currentValue: 2900, sell: true },
+        { name: 'Cash', targetPercent: 10, currentValue: 300, sell: false }
+      ];
+
+      const result = rebalancePortfolio(-1000, portfolio);
+
+      expect(result.summary.totalBefore).toBe(3200);
+      expect(result.summary.totalAfter).toBe(2200);
+      expect(result.summary.contribution).toBe(-1000);
+      const stocks = result.transactions.find(t => t.name === 'Stocks');
+      const cash = result.transactions.find(t => t.name === 'Cash');
+
+      expect(stocks.amount).toBe(-920);
+      expect(cash.amount).toBe(-80);
+
+      expect(stocks.finalValue).toBe(1980);
+      expect(cash.finalValue).toBe(220);
+
+      // Verify sum of transactions equals withdrawal
+      const totalTransaction = stocks.amount + cash.amount;
+      expect(totalTransaction).toBe(-1000);
+    });
+
     test('Removing $25,000 should remove $7,500 from Cash and $17,500 from Bonds even when sell is all false', () => {
       const portfolio = [
         { name: 'Stocks', targetPercent: 80, currentValue: 100000, sell: false },
