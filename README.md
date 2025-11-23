@@ -8,7 +8,9 @@ A JavaScript calculator for optimal lazy portfolio rebalancing, designed for use
 ## Features
 
 - ✅ **Optimal lazy rebalancing** - Gets as close as possible to your target allocation without unnecessary transactions
+- ✅ **Internal rebalancing** - Rebalance by selling overweighted assets to buy underweighted ones without external funds
 - ✅ **Contribution & withdrawal support** - Handle both adding and removing funds
+- ✅ **Smart withdrawal strategy** - Prioritizes achieving perfect balance when possible, respects sell flags
 - ✅ **Precise calculations** - All monetary values rounded to cents
 - ✅ **Comprehensive output** - Returns detailed transaction data and final allocations
 - ✅ **ES Module format** - Ready for browser import
@@ -127,6 +129,7 @@ Calculates the minimum contribution amount needed to perfectly balance a portfol
 This function determines how much money you need to contribute to bring your portfolio into perfect balance with your target allocation. It calculates this by finding the most over-weighted asset and determining the total portfolio value needed for that asset to reach its target percentage.
 
 The calculation works as follows:
+
 - For each asset: required_total = current_value × 100 / target_percent
 - The maximum required_total determines the contribution needed
 - Returns 0 if the portfolio is already balanced
@@ -163,12 +166,12 @@ Calculates optimal rebalancing transactions for a portfolio.
 
 #### Parameters
 
-- **amount** (number): Amount to contribute (positive) or withdraw (negative)
+- **amount** (number): Amount to contribute (positive) or withdraw (negative). Use 0 to perform internal rebalancing only.
 - **assetClasses** (Array): Array of asset objects with the following properties:
   - **name** (string): Asset name
   - **targetPercent** (number): Target allocation percentage (0-100)
   - **currentValue** (number): Current value of the asset
-  - **sell** (boolean): Reserved for future use (not currently used in rebalancing logic)
+  - **sell** (boolean): Whether the asset can be sold during rebalancing. When set to `true`, enables internal rebalancing by selling overweighted sellable assets to buy underweighted assets. During withdrawals, sellable assets are prioritized.
 
 #### Returns
 
@@ -223,13 +226,34 @@ const portfolio = [
 
 const result = rebalancePortfolio(-25000, portfolio);
 
-// Result: Sells from most over-weighted assets to minimize deviation
-// Cash: -$7,500
-// Bonds: -$17,500
-// Stocks: $0 (most under-weighted, no need to sell)
+// Result: Algorithm achieves PERFECT balance at target allocation
+// Total after: $165,000
+// Stocks: $0 (ends at $100,000 = 80% target)
+// Cash: -$7,500 (ends at $32,500 = 10% target)
+// Bonds: -$17,500 (ends at $32,500 = 10% target)
+// Perfect balance achieved: Stocks 80%, Cash 10%, Bonds 10%
 ```
 
-### Example 3: Auto-Calculate Perfect Balance
+### Example 3: Internal Rebalancing (Without External Funds)
+
+```javascript
+const portfolio = [
+  { name: 'Stocks', targetPercent: 60, currentValue: 50000, sell: false },
+  { name: 'Bonds', targetPercent: 40, currentValue: 30000, sell: false },
+  { name: 'Cash', targetPercent: 0, currentValue: 20000, sell: true }
+];
+
+// Rebalance by selling overweighted Cash to buy underweighted assets
+const result = rebalancePortfolio(0, portfolio);
+
+// Result: Internal rebalancing achieves perfect allocation
+// Cash: -$20,000 (sell all cash)
+// Stocks: +$10,000 (buy to reach 60% = $60,000)
+// Bonds: +$10,000 (buy to reach 40% = $40,000)
+// Perfect balance achieved without external funds!
+```
+
+### Example 4: Auto-Calculate Perfect Balance
 
 ```javascript
 import { calculateBalancingContribution, rebalancePortfolio } from './src/rebalancer.js';
@@ -258,7 +282,7 @@ result.transactions.forEach(t => {
 // Bonds: 10% (target: 10%)
 ```
 
-### Example 4: Complex Portfolio
+### Example 5: Complex Portfolio
 
 ```javascript
 const portfolio = [
@@ -273,27 +297,94 @@ const result = rebalancePortfolio(50000, portfolio);
 // Calculator optimally distributes funds to get closest to target allocations
 ```
 
-## Algorithm
+## How It Works
 
-The calculator implements an **optimal lazy rebalancing** algorithm:
+The calculator uses a greedy optimization approach:
 
-### For Contributions (positive amount):
+1. **Calculate current state**: Determines total portfolio value and current allocations
+2. **Determine targets**: Calculates target values after contribution/withdrawal
+3. **Find most imbalanced asset**: Uses fractional deviation to identify which asset needs adjustment most
+4. **Make optimal transaction**: Allocates/withdraws funds to/from that asset
+5. **Repeat**: Continues until all funds are allocated or optimal balance is achieved
+6. **Return results**: Provides detailed breakdown of all transactions
 
-1. Calculates target values for each asset based on new total
-2. Iteratively allocates funds to the most under-weighted asset
-3. Maximizes the minimum fractional deviation across all assets
-4. Only buys assets (no selling unless explicitly allowed)
+This approach ensures you get as close as possible to your target allocation while minimizing transaction complexity and respecting constraints.
 
-### For Withdrawals (negative amount):
+## Algorithm Details
 
-1. Calculates target values for each asset based on new total
-2. Iteratively withdraws funds from the most over-weighted asset
-3. Minimizes the maximum fractional deviation across all assets
-4. All assets are eligible for selling during withdrawals
+The calculator implements an **optimal lazy rebalancing** algorithm with intelligent handling of internal rebalancing and withdrawals:
+
+### Internal Rebalancing (when assets have `sell: true`)
+
+When assets are marked as sellable (`sell: true`), the algorithm performs **internal rebalancing** to achieve perfect balance:
+
+1. **Before applying contributions**: If contributing and sellable assets exist, first rebalances internally by selling overweighted sellable assets and buying underweighted sellable assets
+2. **Zero-contribution rebalancing**: With `amount = 0`, can rebalance portfolio by selling overweighted sellable assets to buy underweighted ones, achieving perfect target allocation without external funds
+3. **Iterative optimization**: Uses fractional deviation to identify most overweighted sellable asset to sell and most underweighted asset to buy
+
+### For Contributions (positive amount)
+
+1. Performs internal rebalancing first (if sellable assets exist)
+2. Calculates target values for each asset based on new total
+3. Iteratively allocates funds to the most under-weighted asset
+4. Maximizes the minimum fractional deviation across all assets
+5. Only buys assets during contribution phase
+
+### For Withdrawals (negative amount)
+
+The algorithm uses a **smart multi-strategy approach** that prioritizes achieving perfect balance:
+
+1. **Perfect Balance Priority**: First checks if withdrawal can achieve perfect target allocation
+   - If yes, withdraws in amounts that result in exact target percentages (regardless of sell flags)
+   - This is the optimal outcome and is prioritized when mathematically possible
+
+2. **Sellable Assets Strategy**: If perfect balance isn't achievable and sellable assets exist:
+   - Withdraws only from assets marked `sell: true`
+   - Starts with most overweighted sellable assets
+   - Falls back to proportional withdrawal from all assets if sellable assets insufficient
+
+3. **No Sellable Assets**: If no assets are sellable:
+   - Withdraws from most overweighted assets first
+   - Uses iterative approach to minimize maximum fractional deviation
+   - Falls back to proportional withdrawal if needed
 
 **Fractional deviation** = (actual_allocation / target_allocation) - 1
 
 All monetary values are rounded to 2 decimal places (cents).
+
+## Understanding Withdrawal Behavior
+
+The withdrawal algorithm has sophisticated behavior that depends on your portfolio state and which assets are marked as sellable:
+
+### When Perfect Balance is Achievable
+
+If the withdrawal amount allows the remaining portfolio to hit exact target percentages, the algorithm will **always prioritize achieving perfect balance**, regardless of sell flags. This is the optimal outcome.
+
+**Example**: Portfolio with $190,000 where Stocks need to be 80% but are currently 52.6%. Withdrawing $25,000 leaves $165,000, and $132,000 (80%) can stay in Stocks while withdrawing entirely from overweighted assets.
+
+### When Sellable Assets Exist
+
+If some assets have `sell: true`:
+
+- Algorithm attempts to withdraw only from sellable assets
+- If sellable assets can't cover the full withdrawal, falls back to proportional withdrawal from all assets
+- This protects assets you don't want to sell (like tax-advantaged accounts or long-term holdings)
+
+### When No Sellable Assets
+
+If all assets have `sell: false`:
+
+- Withdraws from most overweighted assets first
+- Attempts to minimize portfolio imbalance
+- May use proportional withdrawal if no better strategy exists
+
+### Why This Matters
+
+Understanding these behaviors helps you:
+
+- **Tax optimization**: Mark taxable accounts as `sell: true` to withdraw from them first
+- **Strategic rebalancing**: Use withdrawals as rebalancing opportunities
+- **Account protection**: Keep `sell: false` on accounts you want to preserve (401k, IRA, etc.)
 
 ## Testing
 
@@ -326,19 +417,6 @@ npm run test:coverage
 ## Continuous Integration
 
 This project uses GitHub Actions to automatically run tests on every push and pull request. Tests run against Node.js versions 18.x, 20.x, and 22.x.
-
-## How It Works
-
-The calculator uses a greedy optimization approach:
-
-1. **Calculate current state**: Determines total portfolio value and current allocations
-2. **Determine targets**: Calculates target values after contribution/withdrawal
-3. **Find most imbalanced asset**: Uses fractional deviation to identify which asset needs adjustment most
-4. **Make optimal transaction**: Allocates/withdraws funds to/from that asset
-5. **Repeat**: Continues until all funds are allocated or optimal balance is achieved
-6. **Return results**: Provides detailed breakdown of all transactions
-
-This approach ensures you get as close as possible to your target allocation while minimizing transaction complexity and respecting constraints.
 
 ## License
 
