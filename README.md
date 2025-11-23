@@ -136,7 +136,7 @@ Object with the following structure:
 
 #### Throws
 
-- Error if `assetClasses` is not a non-empty array
+- Error if `assetClasses` is an empty array
 - Error if target percentages do not sum to 100%
 - Error if withdrawal amount exceeds total portfolio value
 
