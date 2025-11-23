@@ -19,6 +19,52 @@ function calculateDeviation(actualPercent, targetPercent) {
 }
 
 /**
+ * Calculates the minimum contribution needed to perfectly balance a portfolio
+ * @param {Array} assetClasses - Array of asset objects with properties:
+ *   - name: string
+ *   - targetPercent: number (0-100)
+ *   - currentValue: number
+ *   - sell: boolean (whether asset can be sold)
+ * @returns {number} The contribution amount needed to balance the portfolio
+ */
+export function calculateBalancingContribution(assetClasses) {
+  // Validate inputs
+  if (!Array.isArray(assetClasses) || assetClasses.length === 0) {
+    throw new Error('assetClasses must be a non-empty array');
+  }
+
+  // Validate target percentages sum to 100%
+  const totalTargetPercent = assetClasses.reduce((sum, asset) => sum + asset.targetPercent, 0);
+  if (Math.abs(totalTargetPercent - 100) > 0.01) {
+    throw new Error('Target percentages must sum to 100%');
+  }
+
+  // Calculate current total value
+  const totalBefore = assetClasses.reduce((sum, asset) => sum + asset.currentValue, 0);
+
+  // Calculate the minimum contribution needed to perfectly balance the portfolio
+  // For each asset, we need: finalValue = (targetPercent/100) * totalAfter
+  // Where: finalValue = currentValue + contribution_to_asset
+  // And: totalAfter = totalBefore + total_contribution
+  // 
+  // For perfect balance: currentValue / totalAfter = targetPercent / 100
+  // Solving: totalAfter = currentValue * 100 / targetPercent
+  // Therefore: contribution = totalAfter - totalBefore
+  //
+  // The minimum contribution is determined by the most over-weighted asset
+  let minContribution = 0;
+  for (const asset of assetClasses) {
+    if (asset.targetPercent > 0) {
+      const requiredTotal = (asset.currentValue * 100) / asset.targetPercent;
+      const contribution = requiredTotal - totalBefore;
+      minContribution = Math.max(minContribution, contribution);
+    }
+  }
+
+  return roundToCents(minContribution);
+}
+
+/**
  * Rebalances a portfolio based on a contribution or withdrawal
  * @param {number} amount - Amount to contribute (positive) or withdraw (negative)
  * @param {Array} assetClasses - Array of asset objects with properties:

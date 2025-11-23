@@ -103,6 +103,57 @@ console.log(result);
 
 ## API
 
+### `calculateBalancingContribution(assetClasses)`
+
+Calculates the minimum contribution amount needed to perfectly balance a portfolio to its target allocation.
+
+#### Parameters
+
+- **assetClasses** (Array): Array of asset objects with the following properties:
+  - **name** (string): Asset name
+  - **targetPercent** (number): Target allocation percentage (0-100)
+  - **currentValue** (number): Current value of the asset
+  - **sell** (boolean): Whether the asset can be sold (not used in this calculation)
+
+#### Returns
+
+- **number**: The contribution amount needed to perfectly balance the portfolio (rounded to cents)
+
+#### Description
+
+This function determines how much money you need to contribute to bring your portfolio into perfect balance with your target allocation. It calculates this by finding the most over-weighted asset and determining the total portfolio value needed for that asset to reach its target percentage.
+
+The calculation works as follows:
+- For each asset: required_total = current_value × 100 / target_percent
+- The maximum required_total determines the contribution needed
+- Returns 0 if the portfolio is already balanced
+
+#### Example
+
+```javascript
+import { calculateBalancingContribution } from './src/rebalancer.js';
+
+const portfolio = [
+  { name: 'Stocks', targetPercent: 80, currentValue: 100000, sell: false },
+  { name: 'Cash', targetPercent: 10, currentValue: 40000, sell: false },
+  { name: 'Bonds', targetPercent: 10, currentValue: 50000, sell: false }
+];
+
+// Calculate how much to contribute to perfectly balance the portfolio
+const contribution = calculateBalancingContribution(portfolio);
+console.log(`Contribute $${contribution.toLocaleString()} to balance portfolio`);
+// Output: Contribute $310,000 to balance portfolio
+
+// Use the calculated amount with rebalancePortfolio
+const result = rebalancePortfolio(contribution, portfolio);
+// Portfolio is now perfectly balanced!
+```
+
+#### Throws
+
+- Error if `assetClasses` is an empty array
+- Error if target percentages do not sum to 100%
+
 ### `rebalancePortfolio(amount, assetClasses)`
 
 Calculates optimal rebalancing transactions for a portfolio.
@@ -175,7 +226,36 @@ const result = rebalancePortfolio(-25000, portfolio);
 // Stocks: $0 (most under-weighted, no need to sell)
 ```
 
-### Example 3: Complex Portfolio
+### Example 3: Auto-Calculate Perfect Balance
+
+```javascript
+import { calculateBalancingContribution, rebalancePortfolio } from './src/rebalancer.js';
+
+const portfolio = [
+  { name: 'Stocks', targetPercent: 80, currentValue: 100000, sell: false },
+  { name: 'Cash', targetPercent: 10, currentValue: 40000, sell: false },
+  { name: 'Bonds', targetPercent: 10, currentValue: 50000, sell: false }
+];
+
+// First, calculate how much to contribute for perfect balance
+const needed = calculateBalancingContribution(portfolio);
+console.log(`Need to contribute: $${needed.toLocaleString()}`);
+// Output: Need to contribute: $310,000
+
+// Then rebalance with that amount
+const result = rebalancePortfolio(needed, portfolio);
+
+// Verify perfect balance
+result.transactions.forEach(t => {
+  console.log(`${t.name}: ${t.finalPercent}% (target: ${t.targetPercent}%)`);
+});
+// Output:
+// Stocks: 80% (target: 80%)
+// Cash: 10% (target: 10%)
+// Bonds: 10% (target: 10%)
+```
+
+### Example 4: Complex Portfolio
 
 ```javascript
 const portfolio = [

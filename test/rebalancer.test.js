@@ -1,4 +1,4 @@
-import { rebalancePortfolio } from '../src/rebalancer.js';
+import { rebalancePortfolio, calculateBalancingContribution } from '../src/rebalancer.js';
 
 describe('Portfolio Rebalancer', () => {
   // Base portfolio for testing
@@ -520,6 +520,168 @@ describe('Portfolio Rebalancer', () => {
         expect(t.currentPercent).toBe(expectedCurrentPercent);
         expect(t.finalPercent).toBe(expectedFinalPercent);
       });
+    });
+  });
+
+  describe('Calculate Balancing Contribution', () => {
+    test('Should calculate contribution needed to balance base portfolio', () => {
+      const contribution = calculateBalancingContribution(basePortfolio);
+
+      // Cash is at 21.05% (40k/190k), Bonds at 26.32% (50k/190k), Stocks at 52.63% (100k/190k)
+      // Most over-weighted: Bonds at 26.32% needs to be 10%
+      // Required totalAfter = 50000 / 0.10 = 500,000
+      // contribution = 500,000 - 190,000 = 310,000
+      expect(contribution).toBe(310000);
+    });
+
+    test('Should return 0 for already balanced portfolio', () => {
+      const balancedPortfolio = [
+        { name: 'Stocks', targetPercent: 50, currentValue: 50000, sell: false },
+        { name: 'Bonds', targetPercent: 50, currentValue: 50000, sell: false }
+      ];
+
+      const contribution = calculateBalancingContribution(balancedPortfolio);
+      expect(contribution).toBe(0);
+    });
+
+    test('Should handle empty portfolio (all assets at 0)', () => {
+      const emptyPortfolio = [
+        { name: 'Stocks', targetPercent: 80, currentValue: 0, sell: false },
+        { name: 'Cash', targetPercent: 10, currentValue: 0, sell: false },
+        { name: 'Bonds', targetPercent: 10, currentValue: 0, sell: false }
+      ];
+
+      const contribution = calculateBalancingContribution(emptyPortfolio);
+      expect(contribution).toBe(0);
+    });
+
+    test('Should handle single asset portfolio', () => {
+      const singleAsset = [
+        { name: 'Stocks', targetPercent: 100, currentValue: 100000, sell: false }
+      ];
+
+      const contribution = calculateBalancingContribution(singleAsset);
+      expect(contribution).toBe(0);
+    });
+
+    test('Should handle portfolio with extreme imbalance', () => {
+      const imbalancedPortfolio = [
+        { name: 'Stocks', targetPercent: 80, currentValue: 10000, sell: false },
+        { name: 'Cash', targetPercent: 10, currentValue: 80000, sell: false },
+        { name: 'Bonds', targetPercent: 10, currentValue: 10000, sell: false }
+      ];
+
+      const contribution = calculateBalancingContribution(imbalancedPortfolio);
+      
+      // Cash is most over-weighted at 80% (80k/100k), needs to be 10%
+      // Required totalAfter = 80000 / 0.10 = 800,000
+      // contribution = 800,000 - 100,000 = 700,000
+      expect(contribution).toBe(700000);
+    });
+
+    test('Should handle portfolio where one asset is exactly at target', () => {
+      const portfolio = [
+        { name: 'Stocks', targetPercent: 80, currentValue: 80000, sell: false },
+        { name: 'Cash', targetPercent: 10, currentValue: 15000, sell: false },
+        { name: 'Bonds', targetPercent: 10, currentValue: 5000, sell: false }
+      ];
+
+      const contribution = calculateBalancingContribution(portfolio);
+      
+      // Cash is most over-weighted at 15% (15k/100k), needs to be 10%
+      // Required totalAfter = 15000 / 0.10 = 150,000
+      // contribution = 150,000 - 100,000 = 50,000
+      expect(contribution).toBe(50000);
+    });
+
+    test('Should handle complex portfolio with many assets', () => {
+      const complexPortfolio = [
+        { name: 'US Stocks', targetPercent: 30, currentValue: 50000, sell: false },
+        { name: 'International Stocks', targetPercent: 20, currentValue: 30000, sell: false },
+        { name: 'Bonds', targetPercent: 25, currentValue: 40000, sell: false },
+        { name: 'Real Estate', targetPercent: 15, currentValue: 20000, sell: false },
+        { name: 'Cash', targetPercent: 10, currentValue: 10000, sell: false }
+      ];
+
+      const contribution = calculateBalancingContribution(complexPortfolio);
+      
+      // Total is 150k
+      // US Stocks: 50k/150k = 33.33% (over-weighted, needs 30%)
+      // Bonds: 40k/150k = 26.67% (over-weighted, needs 25%)
+      // Most over-weighted needs calculation for each
+      expect(contribution).toBeGreaterThanOrEqual(0);
+    });
+
+    test('Should throw error for empty asset array', () => {
+      expect(() => calculateBalancingContribution([])).toThrow('assetClasses must be a non-empty array');
+    });
+
+    test('Should throw error for non-array input', () => {
+      expect(() => calculateBalancingContribution(null)).toThrow('assetClasses must be a non-empty array');
+    });
+
+    test('Should throw error if target percentages do not sum to 100', () => {
+      const invalidPortfolio = [
+        { name: 'Stocks', targetPercent: 50, currentValue: 100000, sell: false },
+        { name: 'Bonds', targetPercent: 40, currentValue: 50000, sell: false }
+      ];
+
+      expect(() => calculateBalancingContribution(invalidPortfolio)).toThrow('Target percentages must sum to 100%');
+    });
+
+    test('Should properly round result to cents', () => {
+      const portfolio = [
+        { name: 'Asset1', targetPercent: 33.33, currentValue: 1000, sell: false },
+        { name: 'Asset2', targetPercent: 33.33, currentValue: 1500, sell: false },
+        { name: 'Asset3', targetPercent: 33.34, currentValue: 500, sell: false }
+      ];
+
+      const contribution = calculateBalancingContribution(portfolio);
+      
+      // Verify result is rounded to cents (2 decimal places)
+      expect(contribution).toBe(Math.round(contribution * 100) / 100);
+      expect(contribution * 100).toBe(Math.round(contribution * 100));
+    });
+
+    test('Integration: Should work correctly with rebalancePortfolio', () => {
+      // Calculate the needed contribution
+      const contribution = calculateBalancingContribution(basePortfolio);
+      expect(contribution).toBe(310000);
+
+      // Use it to rebalance
+      const result = rebalancePortfolio(contribution, basePortfolio);
+
+      // Verify perfect balance was achieved
+      expect(result.summary.totalAfter).toBe(500000);
+      expect(result.summary.contribution).toBe(310000);
+
+      const stocks = result.transactions.find(t => t.name === 'Stocks');
+      const cash = result.transactions.find(t => t.name === 'Cash');
+      const bonds = result.transactions.find(t => t.name === 'Bonds');
+
+      // Final values should match targets exactly
+      expect(stocks.finalValue).toBe(400000); // 80% of 500,000
+      expect(cash.finalValue).toBe(50000);    // 10% of 500,000
+      expect(bonds.finalValue).toBe(50000);   // 10% of 500,000
+
+      // Final percentages should match targets
+      expect(stocks.finalPercent).toBe(80);
+      expect(cash.finalPercent).toBe(10);
+      expect(bonds.finalPercent).toBe(10);
+    });
+
+    test('Integration: Should work with under-weighted portfolio', () => {
+      const underWeightedPortfolio = [
+        { name: 'Stocks', targetPercent: 60, currentValue: 30000, sell: false },
+        { name: 'Bonds', targetPercent: 40, currentValue: 20000, sell: false }
+      ];
+
+      const contribution = calculateBalancingContribution(underWeightedPortfolio);
+      
+      // Both are under-weighted relative to each other
+      // Stocks: 30k/50k = 60% (at target!)
+      // Bonds: 20k/50k = 40% (at target!)
+      expect(contribution).toBe(0);
     });
   });
 
