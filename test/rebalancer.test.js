@@ -8,7 +8,7 @@ describe('Portfolio Rebalancer', () => {
     { name: 'Bonds', targetPercent: 10, currentValue: 50000, sell: false }
   ];
 
-  describe('User-provided test cases', () => {
+  describe('Basic rebalancing with contributions', () => {
     test('Adding $25,000 should put all money into Stocks', () => {
       const result = rebalancePortfolio(25000, basePortfolio);
 
@@ -57,6 +57,140 @@ describe('Portfolio Rebalancer', () => {
       const totalTransaction = stocks.amount + cash.amount + bonds.amount;
       expect(totalTransaction).toBe(325000);
     });
+  });
+
+  describe('Rebalancing with sell property modifications', () => {
+    test('Rebalancing with all assets sellable: purchase 52K stocks, sell 21K cash, sell 31K bonds', () => {
+      // Use base portfolio but make all assets sellable
+      const sellablePortfolio = basePortfolio.map(asset => ({
+        ...asset,
+        sell: true
+      }));
+
+      const result = rebalancePortfolio(0, sellablePortfolio);
+
+      expect(result.summary.totalBefore).toBe(190000);
+      expect(result.summary.totalAfter).toBe(190000);
+      expect(result.summary.contribution).toBe(0);
+
+      const stocks = result.transactions.find(t => t.name === 'Stocks');
+      const cash = result.transactions.find(t => t.name === 'Cash');
+      const bonds = result.transactions.find(t => t.name === 'Bonds');
+
+      // Expected transactions to balance portfolio
+      expect(stocks.amount).toBe(52000);  // Purchase 52,000 stocks
+      expect(cash.amount).toBe(-21000);   // Sell 21,000 cash
+      expect(bonds.amount).toBe(-31000);  // Sell 31,000 bonds
+
+      // Verify final values
+      expect(stocks.finalValue).toBe(152000);  // 100,000 + 52,000
+      expect(cash.finalValue).toBe(19000);     // 40,000 - 21,000
+      expect(bonds.finalValue).toBe(19000);    // 50,000 - 31,000
+
+      // Verify final percentages match targets
+      expect(stocks.finalPercent).toBe(80);    // 152,000 / 190,000 = 80%
+      expect(cash.finalPercent).toBe(10);      // 19,000 / 190,000 = 10%
+      expect(bonds.finalPercent).toBe(10);     // 19,000 / 190,000 = 10%
+
+      // Verify sum of transactions equals contribution (should be 0)
+      const totalTransaction = stocks.amount + cash.amount + bonds.amount;
+      expect(totalTransaction).toBe(0);
+    });
+
+    test('Rebalancing with only stocks sellable should result in no transactions', () => {
+      // Use base portfolio but only make stocks sellable
+      const limitedSellPortfolio = basePortfolio.map(asset => ({
+        ...asset,
+        sell: asset.name === 'Stocks' ? true : false
+      }));
+
+      const result = rebalancePortfolio(0, limitedSellPortfolio);
+
+      expect(result.summary.totalBefore).toBe(190000);
+      expect(result.summary.totalAfter).toBe(190000);
+      expect(result.summary.contribution).toBe(0);
+
+      // All transactions should be 0 since only stocks can be sold but stocks are already underweighted
+      result.transactions.forEach(t => {
+        expect(t.amount).toBe(0);
+        expect(t.finalValue).toBe(t.currentValue);
+      });
+
+      // Verify no rebalancing occurred - portfolio remains unchanged
+      expect(result.transactions.find(t => t.name === 'Stocks').finalPercent).toBe(Math.round((100000 / 190000) * 100 * 100) / 100);
+      expect(result.transactions.find(t => t.name === 'Cash').finalPercent).toBe(Math.round((40000 / 190000) * 100 * 100) / 100);
+      expect(result.transactions.find(t => t.name === 'Bonds').finalPercent).toBe(Math.round((50000 / 190000) * 100 * 100) / 100);
+    });
+
+    test('Rebalancing with only stocks and cash sellable: sell 21K cash, purchase 21K stocks', () => {
+      // Use base portfolio but set stocks and cash to sell: true
+      const portfolio = [
+        { name: 'Stocks', targetPercent: 80, currentValue: 100000, sell: true },
+        { name: 'Cash', targetPercent: 10, currentValue: 40000, sell: true },
+        { name: 'Bonds', targetPercent: 10, currentValue: 50000, sell: false }
+      ];
+
+      const result = rebalancePortfolio(0, portfolio);
+
+      expect(result.summary.totalBefore).toBe(190000);
+      expect(result.summary.totalAfter).toBe(190000);
+      expect(result.summary.contribution).toBe(0);
+
+      const stocks = result.transactions.find(t => t.name === 'Stocks');
+      const cash = result.transactions.find(t => t.name === 'Cash');
+      const bonds = result.transactions.find(t => t.name === 'Bonds');
+
+      // Expected transactions: sell cash to buy stocks (bonds stays unchanged)
+      expect(stocks.amount).toBe(21000);   // Purchase 21,000 stocks
+      expect(cash.amount).toBe(-21000);    // Sell 21,000 cash
+      expect(bonds.amount).toBe(0);        // No change to bonds (cannot sell)
+
+      // Verify final values
+      expect(stocks.finalValue).toBe(121000);  // 100,000 + 21,000
+      expect(cash.finalValue).toBe(19000);     // 40,000 - 21,000
+      expect(bonds.finalValue).toBe(50000);    // 50,000 (unchanged)
+
+      // Verify sum of transactions equals contribution (should be 0)
+      const totalTransaction = stocks.amount + cash.amount + bonds.amount;
+      expect(totalTransaction).toBe(0);
+    });
+
+    test('Adding $10,000 with all assets sellable: purchase 60K stocks, sell 20K cash, sell 30K bonds', () => {
+      // Use base portfolio but make all assets sellable
+      const portfolio = basePortfolio.map(asset => ({
+        ...asset,
+        sell: true
+      }));
+
+      const result = rebalancePortfolio(10000, portfolio);
+
+      expect(result.summary.totalBefore).toBe(190000);
+      expect(result.summary.totalAfter).toBe(200000);
+      expect(result.summary.contribution).toBe(10000);
+
+      const stocks = result.transactions.find(t => t.name === 'Stocks');
+      const cash = result.transactions.find(t => t.name === 'Cash');
+      const bonds = result.transactions.find(t => t.name === 'Bonds');
+
+      // Expected transactions: rebalance and add contribution
+      expect(stocks.amount).toBe(60000);   // Purchase 60,000 stocks
+      expect(cash.amount).toBe(-20000);    // Sell 20,000 cash
+      expect(bonds.amount).toBe(-30000);   // Sell 30,000 bonds
+
+      // Verify final values
+      expect(stocks.finalValue).toBe(160000);  // 100,000 + 60,000
+      expect(cash.finalValue).toBe(20000);     // 40,000 - 20,000
+      expect(bonds.finalValue).toBe(20000);    // 50,000 - 30,000
+
+      // Verify final percentages match targets
+      expect(stocks.finalPercent).toBe(80);    // 160,000 / 200,000 = 80%
+      expect(cash.finalPercent).toBe(10);      // 20,000 / 200,000 = 10%
+      expect(bonds.finalPercent).toBe(10);     // 20,000 / 200,000 = 10%
+
+      // Verify sum of transactions equals contribution
+      const totalTransaction = stocks.amount + cash.amount + bonds.amount;
+      expect(totalTransaction).toBe(10000);
+    });
 
     test('Removing $25,000 should remove $7,500 from Cash and $17,500 from Bonds', () => {
       const portfolio = [
@@ -86,6 +220,38 @@ describe('Portfolio Rebalancer', () => {
       // Verify sum of transactions equals withdrawal
       const totalTransaction = stocks.amount + cash.amount + bonds.amount;
       expect(totalTransaction).toBe(-25000);
+    });
+
+    test('Withdrawing $1,000 with all assets sellable: purchase 51.2K stocks, sell 21.1K cash, sell 31.1K bonds', () => {
+      // Use base portfolio but make all assets sellable
+      const portfolio = basePortfolio.map(asset => ({
+        ...asset,
+        sell: true
+      }));
+
+      const result = rebalancePortfolio(-1000, portfolio);
+
+      expect(result.summary.totalBefore).toBe(190000);
+      expect(result.summary.totalAfter).toBe(189000);
+      expect(result.summary.contribution).toBe(-1000);
+
+      const stocks = result.transactions.find(t => t.name === 'Stocks');
+      const cash = result.transactions.find(t => t.name === 'Cash');
+      const bonds = result.transactions.find(t => t.name === 'Bonds');
+
+      // Expected transactions: internal rebalancing plus withdrawal
+      expect(stocks.amount).toBe(51200);   // Purchase 51,200 stocks
+      expect(cash.amount).toBe(-21100);    // Sell 21,100 cash
+      expect(bonds.amount).toBe(-31100);   // Sell 31,100 bonds
+
+      // Verify final values
+      expect(stocks.finalValue).toBe(151200);  // 100,000 + 51,200
+      expect(cash.finalValue).toBe(18900);     // 40,000 - 21,100
+      expect(bonds.finalValue).toBe(18900);    // 50,000 - 31,100
+
+      // Verify sum of transactions equals withdrawal
+      const totalTransaction = stocks.amount + cash.amount + bonds.amount;
+      expect(totalTransaction).toBe(-1000);
     });
 
     test('Withdrawing entire portfolio should result in all assets at $0', () => {

@@ -6,7 +6,6 @@ A JavaScript calculator for optimal lazy portfolio rebalancing, designed for use
 
 - ✅ **Optimal lazy rebalancing** - Gets as close as possible to your target allocation without unnecessary transactions
 - ✅ **Contribution & withdrawal support** - Handle both adding and removing funds
-- ✅ **Constraint-aware** - Respects asset sell restrictions
 - ✅ **Precise calculations** - All monetary values rounded to cents
 - ✅ **Comprehensive output** - Returns detailed transaction data and final allocations
 - ✅ **ES Module format** - Ready for browser import
