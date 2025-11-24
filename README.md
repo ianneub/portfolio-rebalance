@@ -51,7 +51,7 @@ console.log(result);
       amount: 25000.00,        // Positive = buy, Negative = sell
       currentValue: 100000.00,
       finalValue: 125000.00,
-      targetPercent: 80.0,
+      targetPercent: 80,
       currentPercent: 52.63,
       finalPercent: 58.14
     },
@@ -60,7 +60,7 @@ console.log(result);
       amount: 0.00,
       currentValue: 40000.00,
       finalValue: 40000.00,
-      targetPercent: 10.0,
+      targetPercent: 10,
       currentPercent: 21.05,
       finalPercent: 18.60
     },
@@ -69,7 +69,7 @@ console.log(result);
       amount: 0.00,
       currentValue: 50000.00,
       finalValue: 50000.00,
-      targetPercent: 10.0,
+      targetPercent: 10,
       currentPercent: 26.32,
       finalPercent: 23.26
     }
