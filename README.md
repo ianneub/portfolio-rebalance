@@ -47,38 +47,34 @@ console.log(result);
 {
   transactions: [
     {
-      name: "Stocks",
-      amount: 25000.00,        // Positive = buy, Negative = sell
-      currentValue: 100000.00,
-      finalValue: 125000.00,
+      name: 'Stocks',
+      amount: 25000,
+      currentValue: 100000,
+      finalValue: 125000,
       targetPercent: 80,
       currentPercent: 52.63,
       finalPercent: 58.14
     },
     {
-      name: "Cash",
-      amount: 0.00,
-      currentValue: 40000.00,
-      finalValue: 40000.00,
+      name: 'Cash',
+      amount: 0,
+      currentValue: 40000,
+      finalValue: 40000,
       targetPercent: 10,
       currentPercent: 21.05,
-      finalPercent: 18.60
+      finalPercent: 18.6
     },
     {
-      name: "Bonds",
-      amount: 0.00,
-      currentValue: 50000.00,
-      finalValue: 50000.00,
+      name: 'Bonds',
+      amount: 0,
+      currentValue: 50000,
+      finalValue: 50000,
       targetPercent: 10,
       currentPercent: 26.32,
       finalPercent: 23.26
     }
   ],
-  summary: {
-    totalBefore: 190000.00,
-    totalAfter: 215000.00,
-    contribution: 25000.00
-  }
+  summary: { totalBefore: 190000, totalAfter: 215000, contribution: 25000 }
 }
 ```
 
