@@ -3,7 +3,7 @@
  * @param {number} value - The value to round
  * @returns {number} The rounded value
  */
-function roundToCents(value) {
+export function roundToCents(value) {
   return Math.round(value * 100) / 100;
 }
 
@@ -13,7 +13,7 @@ function roundToCents(value) {
  * @param {number} targetPercent - Target percentage
  * @returns {number} Fractional deviation (actualPercent/targetPercent - 1)
  */
-function calculateDeviation(actualPercent, targetPercent) {
+export function calculateDeviation(actualPercent, targetPercent) {
   if (targetPercent === 0) return 0;
   return (actualPercent / targetPercent) - 1;
 }

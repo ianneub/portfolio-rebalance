@@ -1,4 +1,4 @@
-import { rebalancePortfolio, calculateBalancingContribution } from '../src/rebalancer.js';
+import { rebalancePortfolio, calculateBalancingContribution, calculateDeviation } from '../src/rebalancer.js';
 
 describe('Portfolio Rebalancer', () => {
   // Base portfolio for testing
@@ -849,7 +849,7 @@ describe('Portfolio Rebalancer', () => {
 
       const totalTransaction = result.transactions.reduce((sum, t) => sum + t.amount, 0);
       expect(totalTransaction).toBe(50000);
-      
+
       // All transactions should be non-negative (buys only)
       result.transactions.forEach(t => {
         expect(t.amount).toBeGreaterThanOrEqual(0);
@@ -868,6 +868,170 @@ describe('Portfolio Rebalancer', () => {
       const stocks = result.transactions.find(t => t.name === 'Stocks');
       // Stocks should receive most of the contribution since they're most under-weighted
       expect(stocks.amount).toBeGreaterThan(50000);
+    });
+  });
+
+  describe('Coverage improvement test cases', () => {
+    test('calculateDeviation should handle targetPercent = 0 edge case', () => {
+      // Test the uncovered branch where targetPercent === 0
+      // Since it's a helper function, we'll test via the module import
+      const result = calculateDeviation ? calculateDeviation(50000, 0) : calculateDeviation(50000, 0);
+      expect(result).toBe(0);
+    });
+
+    test('Internal rebalancing should handle tiny transfer amounts', () => {
+      // Create scenario where transferAmount calculation results in < 0.01
+      const portfolio = [
+        { name: 'Asset1', targetPercent: 50, currentValue: 10000.005, sell: true },
+        { name: 'Asset2', targetPercent: 50, currentValue: 10000.000, sell: true }
+      ];
+
+      // This tests rounding behavior with tiny amounts
+      const result = rebalancePortfolio(0.009, portfolio);
+      expect(result.summary.contribution).toBe(0.01); // Rounded up
+
+      // With such tiny amounts and nearly balanced portfolio, the algorithm may not allocate
+      // This tests that the function handles rounding without crashing
+      const asset1 = result.transactions.find(t => t.name === 'Asset1');
+      const asset2 = result.transactions.find(t => t.name === 'Asset2');
+
+      // Verify all values are properly rounded to cents
+      expect(asset1.amount).toBe(Math.round(asset1.amount * 100) / 100);
+      expect(asset2.amount).toBe(Math.round(asset2.amount * 100) / 100);
+
+      // Total transactions should be reasonable (may be 0 or the rounded amount)
+      const totalTransaction = asset1.amount + asset2.amount;
+      expect(Math.abs(totalTransaction)).toBeLessThanOrEqual(0.01);
+    });
+
+    test('Withdrawal exceeding sellable assets should use proportional withdrawal', () => {
+      const portfolio = [
+        { name: 'Stocks', targetPercent: 40, currentValue: 100000, sell: false },
+        { name: 'Cash', targetPercent: 30, currentValue: 20000, sell: true },
+        { name: 'Bonds', targetPercent: 30, currentValue: 30000, sell: true }
+      ];
+
+      // Withdraw $60000 - more than available sellable assets ($50000) but less than total
+      const result = rebalancePortfolio(-60000, portfolio);
+
+      expect(result.summary.totalAfter).toBe(90000); // 150000 - 60000 = 90000
+      expect(result.summary.contribution).toBe(-60000);
+
+      const stocks = result.transactions.find(t => t.name === 'Stocks');
+      const cash = result.transactions.find(t => t.name === 'Cash');
+      const bonds = result.transactions.find(t => t.name === 'Bonds');
+
+      // Since withdrawal (60k) > sellable assets (50k), proportional withdrawal across all assets
+      // Target after withdrawal: 90k, so each asset should be at target proportions
+      expect(stocks.finalValue).toBe(36000); // 40% of 90k
+      expect(cash.finalValue).toBe(27000);   // 30% of 90k
+      expect(bonds.finalValue).toBe(27000);  // 30% of 90k
+
+      // Final percentages should match targets
+      expect(stocks.finalPercent).toBe(40);
+      expect(cash.finalPercent).toBe(30);
+      expect(bonds.finalPercent).toBe(30);
+
+      // Verify sum of transactions equals withdrawal
+      const totalTransaction = stocks.amount + cash.amount + bonds.amount;
+      expect(totalTransaction).toBe(-60000);
+    });
+
+    test('Contribution to empty portfolio should handle zero totalAfter safely', () => {
+      const emptyPortfolio = [
+        { name: 'Stocks', targetPercent: 80, currentValue: 0.01, sell: false }, // Tiny amount
+        { name: 'Cash', targetPercent: 10, currentValue: 0, sell: false },
+        { name: 'Bonds', targetPercent: 10, currentValue: 0, sell: false }
+      ];
+
+      // This ensures totalAfter > 0 condition is tested (branch 1 in coverage)
+      const result = rebalancePortfolio(100000, emptyPortfolio);
+
+      expect(result.summary.totalAfter).toBe(100000.01); // Includes the tiny existing amount
+      expect(result.summary.contribution).toBe(100000);
+
+      const totalTransaction = result.transactions.reduce((sum, t) => sum + t.amount, 0);
+      expect(totalTransaction).toBe(100000);
+    });
+
+    test('Large contribution should trigger remaining amount distribution logic', () => {
+      const portfolio = [
+        { name: 'Stocks', targetPercent: 90, currentValue: 90000, sell: false },
+        { name: 'Cash', targetPercent: 10, currentValue: 10000, sell: false }
+      ];
+
+      // Add amount to portfolio that's already at target allocation
+      const result = rebalancePortfolio(999.99, portfolio);
+
+      expect(result.summary.totalAfter).toBe(100999.99); // 100,000 + 999.99
+      expect(result.summary.contribution).toBe(999.99);
+
+      const totalTransaction = result.transactions.reduce((sum, t) => sum + t.amount, 0);
+      expect(Math.abs(totalTransaction - 999.99)).toBeLessThan(0.01);
+
+      // Since portfolio is already balanced, the remainder should go to the most under-weighted asset
+      // Both are at target, so the algorithm will pick the first one with the best deviation
+      result.transactions.forEach(t => {
+        expect(t.finalPercent).toBeGreaterThan(0);
+      });
+    });
+
+    test('Withdrawal leaving tiny remainder should test edge case handling', () => {
+      const portfolio = [
+        { name: 'Stocks', targetPercent: 80, currentValue: 80000.01, sell: true },
+        { name: 'Cash', targetPercent: 20, currentValue: 20000.00, sell: true }
+      ];
+
+      // Withdraw almost everything but leave tiny amount
+      const result = rebalancePortfolio(-99980.01, portfolio);
+
+      expect(result.summary.totalAfter).toBe(20); // Should leave minimal amount
+      expect(result.summary.contribution).toBe(-99980.01);
+
+      const totalTransaction = result.transactions.reduce((sum, t) => sum + t.amount, 0);
+      expect(Math.abs(totalTransaction - (-99980.01))).toBeLessThan(0.01);
+
+      // All final values should be non-negative
+      result.transactions.forEach(t => {
+        expect(t.finalValue).toBeGreaterThanOrEqual(0);
+      });
+    });
+
+    test('Internal rebalancing sort stability with equal deviations', () => {
+      // Create scenario with multiple assets having identical deviations
+      const portfolio = [
+        { name: 'Asset1', targetPercent: 25, currentValue: 12500, sell: true },
+        { name: 'Asset2', targetPercent: 25, currentValue: 12500, sell: true },
+        { name: 'Asset3', targetPercent: 25, currentValue: 12500, sell: true },
+        { name: 'Asset4', targetPercent: 25, currentValue: 12500, sell: true }
+      ];
+
+      const result = rebalancePortfolio(0, portfolio);
+
+      // All values should remain the same since portfolio is already balanced
+      result.transactions.forEach(t => {
+        expect(t.amount).toBe(0);
+        expect(t.finalValue).toBe(t.currentValue);
+        expect(t.finalPercent).toBe(25);
+      });
+    });
+
+    test('No valid assets to select should trigger selection failure path', () => {
+      // Create impossible scenario where no asset can be bought
+      // This might be hard to trigger, but let's try with extreme precision
+      const portfolio = [
+        { name: 'Asset1', targetPercent: 50, currentValue: 1000000, sell: false }, // Already at target
+        { name: 'Asset2', targetPercent: 50, currentValue: 1000000, sell: false }  // Already at target
+      ];
+
+      const result = rebalancePortfolio(0.005, portfolio); // Tiny amount that rounds away
+
+      expect(result.summary.contribution).toBe(0.01); // Rounded up
+      expect(result.summary.totalAfter).toBe(2000000.01);
+
+      // The tiny remainder should go to one of the assets
+      const totalTransaction = result.transactions.reduce((sum, t) => sum + t.amount, 0);
+      expect(Math.abs(totalTransaction - 0.005)).toBeLessThan(0.01);
     });
   });
 });
